@@ -568,6 +568,27 @@ async function main() {
     check('it points at the app instead', /BoxHub/.test(msg), msg);
   }
 
+  console.log('\n[J2] a refused socket must not strand the page');
+  {
+    // The field bug: the server answered the live socket with `unauthorized`
+    // (its own key lookup was broken), the dashboard treated that as "your code
+    // is no longer valid" and re-opened the gate over a session that had just
+    // paired — so the page appeared to refresh instead of navigating. What the
+    // client owes the user here is a way back, not a working socket.
+    const t = boot();
+    typePin(t.window, t.doc, PIN);
+    await flush();
+    check('paired', t.doc.getElementById('gate').classList.contains('hidden'));
+
+    socketFrame(t.sockets[0], { event: 'unauthorized' });
+    await flush();
+    check('a refused socket re-opens the gate rather than hanging',
+      !t.doc.getElementById('gate').classList.contains('hidden'));
+    check('and clears the dead code so the next attempt starts fresh',
+      t.window.sessionStorage.getItem('boxhub_key') === null,
+      String(t.window.sessionStorage.getItem('boxhub_key')));
+  }
+
   console.log('\n[I] session reuse: a stored code boots without the gate');
   {
     const t = boot();

@@ -605,8 +605,65 @@ private fun testWebSocket() {
     }
 
     println()
+    testWebSocketQueryAuth()
     testFileOps()
     testLanScope()
     testAccessControlEnforced()
     testOwnerModel()
+}
+
+/**
+ * The WebSocket upgrade must expose the pairing code through `Req.query`.
+ *
+ * This is the contract the app's socket handler depends on, and getting it wrong
+ * is invisible: `Req.path` is the request target *without* the query string, so
+ * a handler that looks for "?k=" there always found nothing, every socket was
+ * answered with `{"event":"unauthorized"}`, and the dashboard slammed its PIN
+ * gate back over a session that had just paired. HTTP kept working the whole
+ * time, because the routes read `req.q("k")` — which is exactly why neither the
+ * socket tests nor the jsdom UI tests noticed.
+ */
+private fun testWebSocketQueryAuth() {
+    println("\n[14] a WebSocket upgrade carries the pairing code in Req.query")
+
+    val seen = AtomicReference<String?>(null)
+    val seenPath = AtomicReference<String?>(null)
+
+    val server = MiniServer(18791, ::dispatch, onWebSocket = { conn: WsConnection, req: Req ->
+        // Exactly what App.handleSocket does.
+        seen.set(req.q("k"))
+        seenPath.set(req.path)
+        conn.sendText("""{"event":"hello"}""")
+        Thread.sleep(60)
+        conn.close()
+    })
+    if (!server.start()) {
+        check("socket-auth server started", false, server.lastError)
+        return
+    }
+
+    try {
+        val key = "Y2h4aW5nZQ=="
+        Client(18791).use { c ->
+            c.send(
+                "GET /ws?k=4821&v=2 HTTP/1.1\r\nHost: box:18791\r\nUpgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            )
+            val h = c.readHead()
+            check("upgrade accepted", h.status == 101, h.status.toString())
+        }
+
+        val path = seenPath.get() ?: "?"
+        check("handler saw the pairing code from the query", seen.get() == "4821", seen.get().orEmpty())
+        // Spelled out on purpose: this is the trap. Reading the code out of the
+        // path yields "" here, which is what broke pairing in the field.
+        check("Req.path deliberately excludes the query", path == "/ws", path)
+        check(
+            "so a path-based lookup would find no code at all",
+            !path.contains('?'),
+            "path=$path would yield an empty key"
+        )
+    } finally {
+        server.stop()
+    }
 }

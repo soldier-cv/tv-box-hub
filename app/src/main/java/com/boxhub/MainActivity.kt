@@ -127,24 +127,12 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, dp(4))
         })
 
-        root.addView(TextView(this).apply {
-            text = "在手机浏览器打开下面的地址，输入配对码即可遥控与传文件。退出本应用会立即关闭端口。"
-            setTextColor(ink2)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setLineSpacing(dp(4).toFloat(), 1f)
-            setPadding(0, 0, dp(560), 0)
-        })
-
-        root.addView(divider(dp(28)))
-
-        val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-
-        // Left: the pairing code — the single thing the user must read aloud.
-        val left = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), dp(56), 0)
-        }
-        left.addView(caption("配对码"))
+        // The pairing code goes FIRST, above the explanation. It is the one number the
+        // user has to read off this screen and type on their phone, and on a
+        // short landscape TV panel anything placed below the intro paragraph
+        // ends up under the fold — verified on an API 37 emulator, where the
+        // code and the URL were only reachable by scrolling.
+        root.addView(caption("配对码"))
         pinLabel = TextView(this).apply {
             setTextColor(ink)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 92f)
@@ -152,22 +140,36 @@ class MainActivity : Activity() {
             letterSpacing = 0.06f
             setPadding(0, dp(4), 0, 0)
         }
-        left.addView(pinLabel)
-        left.addView(caption("访问地址"))
+        root.addView(pinLabel)
+
+        root.addView(caption("访问地址"))
         urlLabel = TextView(this).apply {
             setTextColor(accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             setLineSpacing(dp(6).toFloat(), 1f)
         }
-        left.addView(urlLabel)
-        columns.addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
+        root.addView(urlLabel)
 
-        // Right: capability report — this is the on-device verification the
-        // whole remote-control design hinges on.
+        root.addView(TextView(this).apply {
+            text = "在手机浏览器打开上面的地址，输入上面的配对码即可遥控与传文件。退出本应用会立即关闭端口。"
+            setTextColor(ink2)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setLineSpacing(dp(4).toFloat(), 1f)
+            // Max width, never a fixed right padding: a 560dp right padding used
+            // to squeeze this into a narrow column and grow the paragraph.
+            setMaxWidth(dp(640))
+            setPadding(0, dp(20), 0, 0)
+        })
+
+        root.addView(divider(dp(24)))
+
+        // Capability report — the on-device verification the whole remote-control
+        // design hinges on. Below the fold is fine here: it is diagnostic, and
+        // unlike the pairing code nobody has to read it to start using the app.
         val right = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(40), dp(8), 0, 0)
+            setPadding(0, dp(4), 0, 0)
         }
         right.addView(caption("设备能力检测"))
         statusLabel = TextView(this).apply {
@@ -235,8 +237,7 @@ class MainActivity : Activity() {
             topMargin = dp(8)
         })
 
-        columns.addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(columns)
+        root.addView(right)
 
         return ScrollView(this).apply {
             isFillViewport = true

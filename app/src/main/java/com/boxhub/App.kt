@@ -13,6 +13,7 @@ import com.boxhub.fs.FileOps
 import com.boxhub.http.LanScope
 import com.boxhub.http.MiniServer
 import com.boxhub.http.PinGuard
+import com.boxhub.http.Req
 import com.boxhub.http.Resp
 import com.boxhub.http.WsConnection
 import java.io.File
@@ -167,7 +168,7 @@ object App {
         val root = Environment.getExternalStorageDirectory()
         files = FileOps(root)
         if (server == null) {
-            server = MiniServer(PORT, routes::dispatch, { conn, req -> handleSocket(conn, req.path) }) { peer ->
+            server = MiniServer(PORT, routes::dispatch, { conn, req -> handleSocket(conn, req) }) { peer ->
                 // LAN-only by policy, not merely by bind address.
                 if (LanScope.isAllowed(peer)) true
                 else {
@@ -239,8 +240,8 @@ object App {
         if (dead.isNotEmpty()) clients.removeAll(dead.toSet())
     }
 
-    private fun handleSocket(conn: WsConnection, path: String) {
-        if (!authorized(extractKey(path))) {
+    private fun handleSocket(conn: WsConnection, req: Req) {
+        if (!authorized(socketKey(req))) {
             conn.sendText("""{"event":"unauthorized"}""")
             conn.close()
             return
@@ -263,11 +264,17 @@ object App {
         }
     }
 
-    private fun extractKey(path: String): String {
-        val i = path.indexOf('?')
-        if (i < 0) return ""
-        return MiniServer.parseQuery(path.substring(i + 1))["k"] ?: ""
-    }
+    /**
+     * The pairing code for a WebSocket upgrade.
+     *
+     * It must come from [Req.query], not from the path: MiniServer splits the
+     * request target into `path` (no query) and `query`, so a path lookup for
+     * "?k=" always missed and every socket was refused with `unauthorized` —
+     * which made the dashboard slam the PIN gate back over a session that had
+     * just paired successfully. HTTP endpoints were unaffected because they
+     * read `req.q("k")`.
+     */
+    private fun socketKey(req: Req): String = req.q("k")
 
     // ---- auth ------------------------------------------------------------
 

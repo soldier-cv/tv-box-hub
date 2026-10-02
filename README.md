@@ -134,10 +134,10 @@ ADB.Miner 挖矿木马的重灾区）。
 # 构建
 .\gradlew.bat assembleDebug assembleRelease
 
-# 跑 HTTP/WebSocket/文件层/配对码的 155 项 socket 级测试（JVM，不需要设备）
+# 跑 HTTP/WebSocket/文件层/配对码的 159 项 socket 级测试（JVM，不需要设备）
 .\gradlew.bat :servertest:run
 
-# 跑手机端 WebUI 的 110 项行为测试（jsdom 加载真实 index.html）
+# 跑手机端 WebUI 的 113 项行为测试（jsdom 加载真实 index.html）
 cd servertest; npm install; cd ..
 .\gradlew.bat :servertest:uitest
 
@@ -149,6 +149,35 @@ node servertest\uimock.js 8791
 # 改了配色/图标后重新生成 PNG（提交生成的 PNG 本身，脚本只留作可复现的来源）
 java tools\IconGen.java app\src\main\res
 ```
+
+### 端到端设备测试（模拟器 / 真机）
+
+前两套测试都 stub 掉了网络和 WebSocket，**恰好绕开了 socket 鉴权这个接缝**，
+所以缺陷 12 是在这里才抓到的。`devicetest.js` 不做任何 stub：
+
+```powershell
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+
+# 1. 装到设备上并打开（电视端会显示配对码，就在最上面）
+& $adb install -r app\build\outputs\apk\release\BoxHub-1.0.0-release.apk
+& $adb shell am start -n com.boxhub/.MainActivity
+# 建议先在界面上勾上「保持运行」：否则切到浏览器后系统可能冻结进程，
+# 端口还在监听但请求全部挂起（缺陷 14）
+
+# 2. 读配对码（电视界面第一屏就是），或从通知栏 / uiautomator dump 里取
+& $adb shell uiautomator dump /sdcard/ui.xml; & $adb shell cat /sdcard/ui.xml
+
+# 3. 转发端口，用设备自带浏览器打开控制台
+& $adb forward tcp:8790 tcp:8790
+& $adb forward tcp:9333 localabstract:chrome_devtools_remote
+& $adb shell am start -a android.intent.action.VIEW -d http://<盒子IP>:8790
+
+# 4. 跑测试：填配对码 → 应关掉配对码门、连上 socket、显示设备信息
+node servertest\devicetest.js 4821 9333
+```
+
+失败时退出码非 0；`PROBE=1` 会额外打印页面实际发出的 fetch / 定时器 / socket 帧。
+**Chrome 的首个"通知"弹窗会吃掉模拟点击**，先手动点掉「No thanks」。
 
 ### 代码结构
 
@@ -181,14 +210,15 @@ tools/IconGen.java                 图标生成器（Java2D，无第三方依赖
 servertest/
 ├─ build.gradle.kts             复用 app 的 http/ 与 fs/ 源码在 JVM 上编译
 ├─ package.json                 jsdom（仅 UI 行为测试用）
-├─ src/main/kotlin/boxhubtest/ 155 项断言
-├─ uitest.js                    110 项 dashboard 行为断言（加载真实 index.html）
+├─ src/main/kotlin/boxhubtest/ 159 项断言
+├─ devicetest.js                端到端设备测试（真实浏览器 + 真实服务端，经 CDP 驱动）
+├─ uitest.js                    113 项 dashboard 行为断言（加载真实 index.html）
 └─ uimock.js                    桌面预览 WebUI 用的 mock 后端
 ```
 
 ### 测试抓到的真实缺陷
 
-#### JVM socket / 文件系统 / 配对码测试（155 项）
+#### JVM socket / 文件系统 / 配对码测试（159 项）
 
 `MiniServer`、`Ws`、`FileOps`、`LanScope`、`PinGuard` 都只依赖 `java.*`，因此直接编进
 JVM 测试模块跑真实 socket 与真实文件系统：
@@ -201,7 +231,7 @@ JVM 测试模块跑真实 socket 与真实文件系统：
    `writeResponse` **以字节数为准**，从根上消灭这一类错误；并加了回归测试。
 3. `Routes` 里 401 分支原本不带 `return`，`when` 当语句用时分支值被丢弃。
 
-#### 浏览器行为测试（jsdom，110 项，加载真实 index.html）
+#### 浏览器行为测试（jsdom，113 项，加载真实 index.html）
 
 更早一轮用真实浏览器（OpenChamber）点按钮时抓到两个**会让首次使用直接卡死**的缺陷，
 两者都只做视觉检查时完全看不出来：
@@ -234,7 +264,7 @@ JVM 测试模块跑真实 socket 与真实文件系统：
    现在服务端允许递归删除并返回被删项数，UI 提供"删除目录"并强制二次确认、明确写出
    后果（"会同时永久删除该目录下的全部内容"）。
 
-#### 真机反馈：输对配对码也进不去（缺陷 6-10）
+#### 真机反馈：输对配对码也进不去（缺陷 6-10, 12-14）
 
 装到盒子上、手机第一次连上来后报的：**输入配对码后手机界面刷新，进不了控制台。**
 四个独立缺陷叠在一起，每一个都足以造成这个现象：
@@ -295,6 +325,40 @@ JVM 测试模块跑真实 socket 与真实文件系统：
     顺带一个自己踩的坑：横幅版式最初把字号写死，`BoxHub` 被挤出 320px 画布右侧被裁掉
     —— 改成先测量再居中排版。**所以图标这种东西必须真的看一眼渲染结果**，
     `aapt dump badging` 只能证明它被打包了，证明不了它看得见。
+
+#### 在模拟器上跑真机之后（缺陷 12-14）
+
+12. **这才是「输完配对码页面刷新」的真正原因。WebSocket 永远鉴权失败。**
+    `MiniServer` 把请求行拆成 `Req.path`（**不含 query**）和 `Req.query`，而
+    `App` 却拿 `req.path` 去找 `?k=` —— 永远找不到，`extractKey()` 恒返回空串，
+    于是服务端对**每一次** socket 升级都回 `{"event":"unauthorized"}` 并关闭。
+    前端收到后认为「配对码失效」，把 PIN 门重新弹到**刚刚才配对成功的会话上**，
+    同时清掉 sessionStorage。用户看到的就是：码输对了 → 闪一下 → 又回到配对码页。
+    之所以一直没被发现：HTTP 全部走 `req.q("k")`，**功能全都正常**，只有 socket 是死的；
+    而 jsdom 测试把 `window.WebSocket` 整个替换掉了，JVM 测试又换掉了 App 的 socket
+    处理器 —— **两套测试都恰好绕开了这个接缝**。修法：改用 `req.q("k")`，
+    并补了一条 JVM 测试断言「升级请求的 `Req.query` 里有码、`Req.path` 里没有」。
+
+13. **电视上根本看不到配对码。** 那段说明文字写的是 `setPadding(0,0,dp(560),0)`：
+    固定 560dp 的右内边距把文字挤成窄条、段落高出好几行，把配对码和访问地址
+    整个顶到屏幕外 —— 在模拟器上 uiautomator 明确报
+    `Skipping invisible child ... boundsInScreen: Rect(300,1236 - 2712,1208)`，
+    也就是**必须滚动才看得见那个唯一需要读的号码**。改法不只是把 padding 换成
+    `setMaxWidth`，而是**调整信息层级**：配对码和地址直接放到标题下面置顶，
+    说明文字和能力检测挪到下面。诊断信息可以折叠，用户必须读的数字不行。
+
+14. **Android 会「冻结」后台进程，端口还占着但没人应答。** 模拟器上把 BoxHub
+    切到后台后 logcat 出现 `ActivityManager: freezing <pid> com.boxhub`，
+    此时 8790 仍被内核 accept 队列监听，但工作线程被冻结，**所有请求无限挂起**
+    （实测 90 秒无响应，而不是被拒绝）。勾上「保持运行」起前台服务后立刻恢复
+    （121ms）。N1 的 Android 7.1 没有这么激进的冻结，但这解释了「切走一会儿就连不上」，
+    也是推荐默认勾「保持运行」的一个实打实的理由。
+
+**为什么之前一直查不出来：jsdom 和 Node mock 都把网络与 WebSocket 换成了桩。**
+现在补了 `servertest/devicetest.js`（见下），它用 Chrome DevTools Protocol 驱动
+**设备上真实浏览器**里的**真实页面**，连的是**真实 MiniServer**。缺陷 12 就是它抓到的，
+而且是抓在「配对其实成功了、随后门被弹回来」这个动作上 —— 只看最终截图会误判成
+「页面没动」。
 
 ---
 
