@@ -1,0 +1,12 @@
+{
+  "name": "boxhub-servertest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless behaviour tests for the BoxHub phone dashboard (loads the real assets/index.html into jsdom).",
+  "scripts": {
+    "uitest": "node uitest.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

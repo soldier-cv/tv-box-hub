@@ -1,0 +1,15 @@
+# Normalise text files to LF in the repository and in the working tree.
+#
+# This matters most for `gradlew`: Windows Git defaults to autocrlf=true, which
+# rewrites the shell launcher to CRLF, and a checkout on Linux or macOS then
+# fails with "bad interpreter: /bin/sh^M". The repo was written with LF
+# throughout, so pin that instead of letting each platform decide.
+* text=auto eol=lf
+
+# The one exception: Windows batch files are run by cmd.exe, which expects CRLF.
+*.bat text eol=crlf
+
+# Never touch binaries.
+*.jar binary
+*.png binary
+*.apk binary
