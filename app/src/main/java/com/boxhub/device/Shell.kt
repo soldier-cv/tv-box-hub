@@ -20,8 +20,19 @@ object Shell {
 
     private const val DEFAULT_LIMIT = 16 * 1024 * 1024
 
+    /**
+     * Why the most recent [run] produced no process at all, or null when it did.
+     *
+     * `run` collapses "the binary is missing" and "we are not allowed to exec it"
+     * into the same null, which is useless for telling the user what is wrong with
+     * their box. Callers that care read this.
+     */
+    @Volatile var lastError: String? = null
+        private set
+
     fun run(args: List<String>, timeoutMs: Long = 5_000, limit: Int = DEFAULT_LIMIT): Result? {
         if (args.isEmpty()) return null
+        lastError = null
         return try {
             val pb = ProcessBuilder(args)
             pb.redirectErrorStream(false)
@@ -45,7 +56,8 @@ object Shell {
                 t1.join(400); t2.join(400)
                 Result(p.exitValue(), outBuf.toByteArray(), String(errBuf.toByteArray(), Charsets.UTF_8).trim())
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastError = "${e.javaClass.simpleName}: ${e.message ?: "no detail"}"
             null
         }
     }

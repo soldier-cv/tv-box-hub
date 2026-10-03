@@ -98,8 +98,10 @@ function boot(opts) {
         } else if (url.pathname === '/api/delete') {
           payload = { ok: true, dir: true, entries: 3, name: sp.get('path') };
         } else if (url.pathname === '/api/info') {
-          payload = { ok: true, running: true, model: 'N1', android: '7.1.2', root: '/storage/emulated/0',
-                      storage: '5 GB', remote: 'shell', remoteOk: true, capture: true, addrs: ['192.168.1.50'] };
+          payload = Object.assign({
+            ok: true, running: true, model: 'N1', android: '7.1.2', root: '/storage/emulated/0',
+            storage: '5 GB', remote: 'shell', remoteOk: true, capture: true, addrs: ['192.168.1.50']
+          }, opts.info || {});
         } else {
           payload = { ok: true };
         }
@@ -587,6 +589,36 @@ async function main() {
     check('and clears the dead code so the next attempt starts fresh',
       t.window.sessionStorage.getItem('boxhub_key') === null,
       String(t.window.sessionStorage.getItem('boxhub_key')));
+  }
+
+  console.log('\n[J3] a dead remote explains itself');
+  {
+    // "遥控不可用" on its own leaves the user with nothing to act on, and the
+    // cause is a platform permission rather than an application fault. The page
+    // has to say which it is and what would fix it.
+    const DEAD = {
+      remote: 'none',
+      remoteOk: false,
+      shellDetail: '系统拒绝注入按键（App 缺少 INJECT_EVENTS 权限）',
+      remoteWhy: 'raw framework text that means nothing to a reader'
+    };
+    const t = boot({ info: DEAD });
+    typePin(t.window, t.doc, PIN);
+    await flush();
+
+    check('a dead remote shows an explanation', t.doc.getElementById('remoteNote').hidden === false);
+    const text = t.doc.getElementById('remoteNote').textContent;
+    check('it names the actual cause', /INJECT_EVENTS/.test(text), text.slice(0, 120));
+    check('it says this is a system limit, not an app fault', /系统限制|不是应用故障/.test(text), text.slice(0, 160));
+    check('it offers an actionable way out', /root/.test(text) && /adb/.test(text), text.slice(0, 200));
+    check('the header still marks the remote unavailable',
+      /遥控不可用/.test(t.doc.getElementById('dandroid').textContent), t.doc.getElementById('dandroid').textContent);
+    check('the raw framework message is kept out of the way', /技术细节/.test(text), text.slice(0, 200));
+
+    const ok = boot();
+    typePin(ok.window, ok.doc, PIN);
+    await flush();
+    check('no warning while the remote works', ok.doc.getElementById('remoteNote').hidden === true);
   }
 
   console.log('\n[I] session reuse: a stored code boots without the gate');

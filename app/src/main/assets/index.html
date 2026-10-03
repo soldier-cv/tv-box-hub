@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<!-- Without this the browser may auto-darken the page, and this design cannot
+     survive it: the background is cream and the D-pad buttons are near-black,
+     so force-dark collapses both to the same shade and the remote turns into
+     light triangles floating on nothing. Opt out explicitly. -->
+<meta name="color-scheme" content="light">
 <meta name="theme-color" content="#F6F6F4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -10,6 +15,7 @@
 <title>BoxHub</title>
 <style>
   :root{
+    color-scheme: light;      /* see the <meta> above: never auto-darken */
     --bg:#F6F6F4;
     --surface:#FFFFFF;
     --surface-2:#FBFBFA;
@@ -73,6 +79,9 @@
     font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px}
   .screenbar{display:flex;align-items:center;gap:8px;margin-top:10px}
   .screenbar .hint{font-size:12px;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+  .note{margin-top:10px;padding:11px 13px;border:1px solid var(--line-2);
+    border-radius:var(--r-sm);background:#FDF4EC;color:#7A4A16;font-size:12.5px;line-height:1.65}
+  .note b{font-weight:600}
 
   /* ---------- dpad ---------- */
   .dpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:300px;margin:0 auto}
@@ -229,6 +238,9 @@
         <span class="hint" id="kaLabel" style="margin-left:0">保持运行 —</span>
         <span class="hint" style="margin-left:auto">断线时请确认电视上的 BoxHub 仍在运行</span>
       </div>
+      <!-- Why the remote is dead, in words. "遥控不可用" alone leaves the user
+           with nothing to act on. -->
+      <div class="note" id="remoteNote" hidden></div>
     </div>
 
     <div style="height:16px"></div>
@@ -1017,6 +1029,26 @@ function applyInfo(j){
   if(j.remote && !j.remoteOk){
     $('#viaLabel').textContent = '不可用';
   }
+  // A dead remote is the difference between "app is broken" and "this Android
+  // build forbids key injection from a normal app", so say the second one.
+  var note = $('#remoteNote');
+  if(j.remoteOk === false){
+    var why = j.shellDetail || '本机拒绝注入按键。';
+    var html = '<b>遥控不可用：</b>' + escapeHtml(why) +
+      '<br>Android 把「注入按键」设为签名级权限，普通 App 一律被拒 —— 这是系统限制，' +
+      '不是应用故障。文件管理、播放、装包都照常可用。' +
+      '<br>要用遥控，需要满足一条：给盒子 root（本页下方「root (su)」会变成 ✓，遥控自动恢复）' +
+      ' / 把 BoxHub 装成系统应用 / 电脑上用 adb shell input。';
+    // The raw framework message is kept, but out of the way: it is truncated
+    // mid-sentence and means nothing to a reader.
+    if(j.remoteWhy) html += '<details style="margin-top:7px"><summary style="font-size:11px">技术细节</summary>' +
+      '<div style="margin-top:5px;font-family:var(--mono);font-size:10.5px;word-break:break-word">' +
+      escapeHtml(j.remoteWhy) + '</div></details>';
+    note.innerHTML = html;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
   if(!j.capture){
     $('#shotPh').innerHTML = '截屏预览不可用<br><span style="font-size:11px">' +
       (j.captureError || 'screencap 被拒绝') + '</span><br>遥控功能不受影响';
@@ -1043,6 +1075,12 @@ function boot(){
 }
 
 function isAuthError(e){ return /unauthorized|401/i.test(String((e && e.message) || e)); }
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"]/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
+  });
+}
 
 // Single authentication path. A separate load-time probe used to race the
 // pairing attempt: if its 401 landed after a successful pairing it re-opened

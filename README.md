@@ -71,16 +71,22 @@
 |---|---|---|
 | 远程注入 | 遥控能不能用 | 显示 `✗` 则本机固件禁止注入，遥控不可用 |
 | input 命令 | `/system/bin/input` 能否执行 | 不可执行时自动降级到框架注入路径 |
+| root (su) | 有没有 root | `✗` 说明只能用 adb 遥控，详见「已知限制」 |
 | 截屏预览 | `screencap` 能否执行 | 不可用只影响预览，遥控不受影响 |
 | 存储写入 | 权限是否已授予 | 未授予则上传会失败 |
 
-遥控走三层降级，启动时实测并选用第一条可用路径：
+遥控启动时实测，按顺序选用第一条可用路径：
 
-1. `input keyevent` —— 和 ADB 同一条路，最稳
-2. `Instrumentation.sendKeyDownUpSync`
-3. `UiAutomation.injectInputEvent`（反射 `connect()`）
+1. `su -c "input ..."` —— 有 root 时唯一真正管用的路
+2. `input keyevent` —— 和 ADB 同一条路，但 App 身份通常没有执行/注入权限
+3. `Instrumentation.sendKeyDownUpSync`
+4. `UiAutomation.injectInputEvent`（反射 `connect()`）
 
 触摸板优先用框架注入路径，因为每次手势都 `exec` 一个进程太慢。
+
+> 探测只看**退出码**。早先的判定把「有任何 stderr 输出」也算成功，于是
+> `input` 打印一句 `SecurityException` 就会被报成 `✓ 遥控可用`，而实际按键全部
+> 无效 —— 比报「不可用」更糟，因为它让用户以为是自己没对准。
 
 ---
 
@@ -137,7 +143,7 @@ ADB.Miner 挖矿木马的重灾区）。
 # 跑 HTTP/WebSocket/文件层/配对码的 159 项 socket 级测试（JVM，不需要设备）
 .\gradlew.bat :servertest:run
 
-# 跑手机端 WebUI 的 113 项行为测试（jsdom 加载真实 index.html）
+# 跑手机端 WebUI 的 120 项行为测试（jsdom 加载真实 index.html）
 cd servertest; npm install; cd ..
 .\gradlew.bat :servertest:uitest
 
@@ -212,7 +218,7 @@ servertest/
 ├─ package.json                 jsdom（仅 UI 行为测试用）
 ├─ src/main/kotlin/boxhubtest/ 159 项断言
 ├─ devicetest.js                端到端设备测试（真实浏览器 + 真实服务端，经 CDP 驱动）
-├─ uitest.js                    113 项 dashboard 行为断言（加载真实 index.html）
+├─ uitest.js                    120 项 dashboard 行为断言（加载真实 index.html）
 └─ uimock.js                    桌面预览 WebUI 用的 mock 后端
 ```
 
@@ -231,7 +237,7 @@ JVM 测试模块跑真实 socket 与真实文件系统：
    `writeResponse` **以字节数为准**，从根上消灭这一类错误；并加了回归测试。
 3. `Routes` 里 401 分支原本不带 `return`，`when` 当语句用时分支值被丢弃。
 
-#### 浏览器行为测试（jsdom，113 项，加载真实 index.html）
+#### 浏览器行为测试（jsdom，120 项，加载真实 index.html）
 
 更早一轮用真实浏览器（OpenChamber）点按钮时抓到两个**会让首次使用直接卡死**的缺陷，
 两者都只做视觉检查时完全看不出来：
@@ -370,6 +376,14 @@ JVM 测试模块跑真实 socket 与真实文件系统：
   电视上的 App 一旦被系统销毁再重建（内存回收、最近任务划掉）也会换码；手机上会
   自动重新弹出配对码门，照新码输入即可
 - 遥控能力取决于盒子固件对 `input` 的 SELinux 策略，上机后看「设备能力检测」
+- **遥控需要 root。** Android 把「注入按键」设为 `INJECT_EVENTS`（签名级）权限，
+  普通第三方 App 一律拿不到 —— 这不是 BoxHub 的问题，`adb shell input` 能用只是因为
+  adb 跑在 `shell` UID 上。实测报错原文：
+  `java.lang.SecurityException: Injecting input events requires the caller to be privileged`。
+  启动时会探测 `su`（`/system/bin/su`、`/system/xbin/su`、`/su/bin/su`、`/system/sbin/su`），
+  有 root 就自动走 `su -c "input ..."`，遥控直接恢复；没有 root 则电视和手机端都会
+  明确写出原因和三条可行的出路（root / 装成系统应用 / 电脑上用 adb）。
+  文件管理、播放、装包不受影响，照常可用
 - 截屏是 1 fps 预览，不是投屏。真投屏需要接入 scrcpy（未实现）
 - 浏览器播放走 HTTP Range，`.mkv` 在手机浏览器里能否播取决于浏览器编码支持
   （Chrome 不支持 MKV，需转码或用 mp4）

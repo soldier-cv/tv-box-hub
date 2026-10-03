@@ -299,6 +299,7 @@ class MainActivity : Activity() {
         val lines = ArrayList<String>()
         lines.add("远程注入   ${badge(remoteOk)}  ${KeyInjector.strategy.name.lowercase()}")
         lines.add("input 命令  ${badge(KeyInjector.shellAvailable == true)}")
+        lines.add("root (su)  ${badge(KeyInjector.suAvailable == true)}")
         lines.add("截屏预览   ${badge(ScreenCapture.available == true)}")
         lines.add("存储写入   ${badge(storageOk)}")
         lines.add("存储空间   ${App.storageLabel()}")
@@ -308,8 +309,18 @@ class MainActivity : Activity() {
 
         if (!remoteOk) {
             lines.add("")
-            lines.add("远程注入不可用：本机固件拒绝执行 input，")
-            lines.add("且框架注入路径均被拦截。遥控功能将失效。")
+            // Say what is actually wrong. "遥控不可用" on its own leaves the user
+            // with nothing to act on; on stock Android this is not a firmware
+            // quirk but a platform permission, and the only real fixes are root
+            // or installing the app as a system app.
+            KeyInjector.shellDetail?.let { lines.add("原因：$it") }
+            lines.add("")
+            lines.add("Android 的 INJECT_EVENTS 是「签名级」权限，普通 App 无法注入按键，")
+            lines.add("这不是 BoxHub 的问题。要用遥控，需要满足其中一条：")
+            lines.add("  1. 给盒子 root（su 可用时这里会变成 ✓，遥控自动恢复）")
+            lines.add("  2. 把 BoxHub 装成系统应用 / 用平台签名重签")
+            lines.add("  3. 电脑上用 adb shell input 遥控盒子")
+            lines.add("文件管理、播放、装包等功能不受影响，照常可用。")
         }
         if (ScreenCapture.available == true && ScreenCapture.lastError != null) {
             lines.add("截屏提示: ${ScreenCapture.lastError}")
